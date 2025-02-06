@@ -33,8 +33,6 @@ from typing import (
     Optional,
 )
 
-from typing_extensions import Unpack
-
 from .stages import (
     Args,
     MutatorStage,
@@ -50,6 +48,8 @@ from .stages import (
 
 if TYPE_CHECKING:
     from concurrent.futures import Executor, ThreadPoolExecutor
+
+    from typing_extensions import Unpack
 
 
 log = logging.getLogger("beets")

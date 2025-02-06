@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import inspect
+import logging
 from concurrent.futures import Executor
 from dataclasses import dataclass
 from typing import (
@@ -17,10 +18,10 @@ from typing import (
 
 from typing_extensions import Protocol, TypeVar, TypeVarTuple, Unpack
 
+log = logging.getLogger("beets")
+
 # Typing
 R = TypeVar("R", bound=Any)
-
-
 Task = TypeVar("Task")
 Returns = Union[
     Iterable[Task],
@@ -72,7 +73,7 @@ class Stage(Generic[Task, Return, Unpack[Args]], StageI[Task]):
     for this in python is very chunky and difficult to implement in a generic way.
     """
 
-    func: StageFunc[Unpack[Args], Task, Return]
+    func: Callable[[Unpack[Args], Task], Return]
     args: tuple  # P.args: tuple (not possible to type hint)
 
     def as_callable(self) -> Callable[[Task], Return]:
@@ -226,4 +227,5 @@ def _helper_queue(queue: asyncio.Queue[Task | Sentinel], f, *args):
 
 def _helper_mutator(queue: asyncio.Queue[Task | Sentinel], f, task: Task):
     f(task)
+    log.debug("Mutated task", task)
     queue.put_nowait(task)

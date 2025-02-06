@@ -282,9 +282,7 @@ class ImportTarTest(ImportZipTest):
         path = bytestring_path(path)
         os.close(handle)
         archive = TarFile(os.fsdecode(path), mode="w")
-        archive.add(
-            syspath(os.path.join(_common.RSRC, b"full.mp3")), "full.mp3"
-        )
+        archive.add(syspath(os.path.join(_common.RSRC, b"full.mp3")), "full.mp3")
         archive.close()
         return path
 
@@ -610,10 +608,7 @@ class ImportTest(ImportTestCase):
                 assert item.get("genre", with_album=False) == genre
                 assert item.get("collection", with_album=False) == collection
                 assert item.get("comments", with_album=False) == comments
-                assert (
-                    item.get("album", with_album=False)
-                    == "Tag Album - formatted"
-                )
+                assert item.get("album", with_album=False) == "Tag Album - formatted"
                 assert item.disc == disc
             # Remove album from library to test again with APPLY choice.
             album.remove()
@@ -633,8 +628,7 @@ class ImportTest(ImportTestCase):
                 assert item.get("collection", with_album=False) == collection
                 assert item.get("comments", with_album=False) == comments
                 assert (
-                    item.get("album", with_album=False)
-                    == "Applied Album - formatted"
+                    item.get("album", with_album=False) == "Applied Album - formatted"
                 )
                 assert item.disc == disc
 
@@ -848,9 +842,7 @@ class ImportExistingTest(ImportTestCase):
 
         self.reimporter.add_choice(importer.action.ASIS)
         self.reimporter.run()
-        self.assert_file_in_lib(
-            b"Applied Artist", b"Applied Album", b"New Title.mp3"
-        )
+        self.assert_file_in_lib(b"Applied Artist", b"Applied Album", b"New Title.mp3")
         self.assert_file_not_in_lib(old_path)
 
     def test_asis_updated_without_copy_does_not_move_file(self):
@@ -875,9 +867,7 @@ class ImportExistingTest(ImportTestCase):
     def test_outside_file_is_copied(self):
         config["import"]["copy"] = False
         self.importer.run()
-        self.assert_equal_path(
-            self.lib.items().get().path, self.import_media[0].path
-        )
+        self.assert_equal_path(self.lib.items().get().path, self.import_media[0].path)
 
         self.reimporter = self.setup_importer()
         self.reimporter.add_choice(importer.action.APPLY)
@@ -894,14 +884,17 @@ class ImportExistingTest(ImportTestCase):
     def test_outside_file_is_moved(self):
         config["import"]["copy"] = False
         self.importer.run()
-        self.assert_equal_path(
-            self.lib.items().get().path, self.import_media[0].path
-        )
+        self.assert_equal_path(self.lib.items().get().path, self.import_media[0].path)
 
         self.reimporter = self.setup_importer(move=True)
         self.reimporter.add_choice(importer.action.APPLY)
         self.reimporter.run()
         self.assertNotExists(self.import_media[0].path)
+
+
+import logging
+
+log = logging.getLogger("beets")
 
 
 class GroupAlbumsImportTest(ImportTestCase):
@@ -925,7 +918,6 @@ class GroupAlbumsImportTest(ImportTestCase):
         self.import_media[0].artist = "Artist B"
         self.import_media[0].album = "Album B"
         self.import_media[0].save()
-
         self.importer.run()
         albums = {album.album for album in self.lib.albums()}
         assert albums == {"Album B", "Tag Album"}
@@ -1148,9 +1140,7 @@ class ImportDuplicateAlbumTest(ImportTestCase):
 
         # Imported item has the same artist and album as the one in the
         # library.
-        import_file = os.path.join(
-            self.importer.paths[0], b"album", b"track_1.mp3"
-        )
+        import_file = os.path.join(self.importer.paths[0], b"album", b"track_1.mp3")
         import_file = MediaFile(import_file)
         import_file.artist = item["artist"]
         import_file.albumartist = item["artist"]
@@ -1238,9 +1228,7 @@ class ImportDuplicateSingletonTest(ImportTestCase):
         super().setUp()
 
         # Original file in library
-        self.add_item_fixture(
-            artist="artist", title="title", mb_trackid="old trackid"
-        )
+        self.add_item_fixture(artist="artist", title="title", mb_trackid="old trackid")
 
         # Import session
         self.prepare_album_for_import(1)
@@ -1344,9 +1332,7 @@ class ResumeImportTest(ImportTestCase):
     @patch("beets.plugins.send")
     def test_resume_singleton(self, plugins_send):
         self.prepare_album_for_import(2)
-        self.importer = self.setup_singleton_importer(
-            autotag=False, resume=True
-        )
+        self.importer = self.setup_singleton_importer(autotag=False, resume=True)
 
         # Aborts import after one track. This also ensures that we skip
         # the first album in the second try.
@@ -1474,9 +1460,7 @@ class MultiDiscAlbumsInDirTest(BeetsTestCase):
             # Also, false positive marker in parent dir.
             os.path.join(self.base, b"artist [CD5]"),
             os.path.join(self.base, b"artist [CD5]", name + b" disc 1"),
-            os.path.join(
-                self.base, b"artist [CD5]", name_alt_case + b" disc 2"
-            ),
+            os.path.join(self.base, b"artist [CD5]", name_alt_case + b" disc 2"),
             # Single disc album, sorted between CAT discs.
             os.path.join(self.base, b"artist [CD5]", name + b"S"),
         ]
@@ -1485,9 +1469,7 @@ class MultiDiscAlbumsInDirTest(BeetsTestCase):
             os.path.join(self.base, b"ABCD1234", b"cd 3 - bonus", b"song2.mp3"),
             os.path.join(self.base, b"ABCD1234", b"cd 3 - bonus", b"song3.mp3"),
             os.path.join(self.base, b"album", b"cd _ 1", b"song4.mp3"),
-            os.path.join(
-                self.base, b"artist [CD5]", name + b" disc 1", b"song5.mp3"
-            ),
+            os.path.join(self.base, b"artist [CD5]", name + b" disc 1", b"song5.mp3"),
             os.path.join(
                 self.base,
                 b"artist [CD5]",
@@ -1728,9 +1710,7 @@ class ImportPretendTest(ImportTestCase):
 # Helpers for ImportMusicBrainzIdTest.
 
 
-def mocked_get_release_by_id(
-    id_, includes=[], release_status=[], release_type=[]
-):
+def mocked_get_release_by_id(id_, includes=[], release_status=[], release_type=[]):
     """Mimic musicbrainzngs.get_release_by_id, accepting only a restricted list
     of MB ids (ID_RELEASE_0, ID_RELEASE_1). The returned dict differs only in
     the release title and artist name, so that ID_RELEASE_0 is a closer match
@@ -1781,9 +1761,7 @@ def mocked_get_release_by_id(
     }
 
 
-def mocked_get_recording_by_id(
-    id_, includes=[], release_status=[], release_type=[]
-):
+def mocked_get_recording_by_id(id_, includes=[], release_status=[], release_type=[]):
     """Mimic musicbrainzngs.get_recording_by_id, accepting only a restricted
     list of MB ids (ID_RECORDING_0, ID_RECORDING_1). The returned dict differs
     only in the recording title and artist name, so that ID_RECORDING_0 is a
@@ -1841,9 +1819,7 @@ class ImportMusicBrainzIdTest(ImportTestCase):
         self.prepare_album_for_import(1)
 
     def test_one_mbid_one_album(self):
-        self.setup_importer(
-            search_ids=[self.MB_RELEASE_PREFIX + self.ID_RELEASE_0]
-        )
+        self.setup_importer(search_ids=[self.MB_RELEASE_PREFIX + self.ID_RELEASE_0])
 
         self.importer.add_choice(importer.action.APPLY)
         self.importer.run()
@@ -1902,9 +1878,7 @@ class ImportMusicBrainzIdTest(ImportTestCase):
 
     def test_candidates_singleton(self):
         """Test directly SingletonImportTask.lookup_candidates()."""
-        task = importer.SingletonImportTask(
-            toppath="top path", item=_common.item()
-        )
+        task = importer.SingletonImportTask(toppath="top path", item=_common.item())
         task.search_ids = [
             self.MB_RECORDING_PREFIX + self.ID_RECORDING_0,
             self.MB_RECORDING_PREFIX + self.ID_RECORDING_1,

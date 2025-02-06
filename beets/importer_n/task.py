@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Iterable, Optional, TypeVar
+from typing import TYPE_CHECKING, Iterable, Optional
 
 if TYPE_CHECKING:
     from beets import autotag, library

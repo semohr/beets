@@ -49,7 +49,8 @@ class TestSimplePipeline:
     async def test_run_async(self, executor) -> None:
         pl = AsyncPipeline(executor)
         pl.set_producer(_produce)
-        pl.add_stages(_work, _consume)
+        pl.add_stage(_work)
+        pl.add_stage(_consume)
         results = await pl.collect_results()
         assert sorted(results) == [i**2 for i in range(5)]
 
@@ -57,11 +58,11 @@ class TestSimplePipeline:
     async def test_chain_pipes(self, executor) -> None:
         pl = AsyncPipeline(executor)
         pl.set_producer(_produce)
-        pl.add_stages(_work)
+        pl.add_stage(_work)
 
         pl2 = AsyncPipeline(executor)
         pl2.set_producer(pl)
-        pl2.add_stages(_work)
+        pl2.add_stage(_work)
 
         results = await pl2.collect_results()
         assert sorted(results) == [(i**2) ** 2 for i in range(5)]
@@ -76,13 +77,14 @@ class TestExceptionInPipeline:
     async def test_in_stage(self, executor) -> None:
         pl = AsyncPipeline(executor)
         pl.set_producer(_produce)
-        pl.add_stages(_exc_work)
+        pl.add_stage(_exc_work)
         with pytest.raises(PipelineError):
             await pl.collect_results()
 
         pl = AsyncPipeline(executor)
         pl.set_producer(_produce)
-        pl.add_stages(_work, _exc_work)
+        pl.add_stage(_work)
+        pl.add_stage(_exc_work)
         with pytest.raises(PipelineError):
             await pl.collect_results()
 
@@ -90,7 +92,7 @@ class TestExceptionInPipeline:
     async def test_in_producer(self, executor) -> None:
         pl = AsyncPipeline(executor)
         pl.set_producer(_exc_work)
-        pl.add_stages(_work)
+        pl.add_stage(_work)
         with pytest.raises(PipelineError):
             await pl.collect_results()
 
@@ -111,13 +113,14 @@ def _consume_sync(result: Task):
 
 @pytest.mark.parametrize(
     "executor",
-    [ThreadPoolExecutor()],
+    [None, ThreadPoolExecutor()],
 )
 class TestCompatibilityWithNoneAsync:
     @pytest.mark.asyncio(loop_scope="function")
     async def test_run_sync(self, executor) -> None:
         pl = AsyncPipeline(executor)
         pl.set_producer(_produce_sync)
-        pl.add_stages(_work_sync, _consume_sync)
+        pl.add_stage(_work_sync)
+        pl.add_stage(_consume_sync)
         results = await pl.collect_results()
         assert sorted(results) == [i**2 for i in range(5)]
