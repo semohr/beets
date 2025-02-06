@@ -33,16 +33,15 @@ from typing import (
     AsyncGenerator,
     AsyncIterable,
     Callable,
-    Concatenate,
     Generator,
     Generic,
     Iterable,
-    Mapping,
     Optional,
-    ParamSpec,
     TypeVar,
     Union,
 )
+
+from typing_extensions import TypeVarTuple, Unpack
 
 log = logging.getLogger("beets")
 
@@ -56,38 +55,39 @@ Returns = Union[
     Iterable[Task],
     AsyncIterable[Task],
 ]
-Params = ParamSpec("Params")
+Args = TypeVarTuple("Args")
 Return = TypeVar("Return", bound=Returns)
-StageFunc = Callable[Concatenate[Task, Params], Return]
+StageFunc = Callable[[*Args, Task], Return]
 
 
 @dataclass(slots=True)
-class Stage(Generic[Task, Params, Return]):
-    """An stage in the abstract sense can be anything that can be called with a task
+class Stage(Generic[Task, Return, Unpack[Args]]):
+    """A stage processes tasks in the pipeline.
+
+    An stage in the abstract sense can be anything that can be called with a task
     and yields new tasks. We want the following call signatures to be supported:
 
-    **sync**:
-    (task: Task, *args, **kwargs) -> Iterable[Task]
-    (task: Task, *args, **kwargs) -> Generator[Task, None, None]
-    **async**:
-    async (task: Task, *args, **kwargs) -> AsyncGenerator[Task, None]
-    async (task: Task, *args, **kwargs) -> AsyncIterable[Task]
-    **special case**:
-    (task: Task, *args, **kwargs) -> None
+    **sync**
+    --------
+    - (*args, task: Task) -> Iterable[Task]
+    - (*args, task: Task) -> Generator[Task, None, None]
+
+    **async**
+    ---------
+    async (*args, task: Task) -> AsyncGenerator[Task, None]
+    async (*args, task: Task) -> AsyncIterable[Task]
+
 
     Note: In theory the input and output tasks can be different types but typing
     for this in python is very chunky and difficult to implement in a generic way.
     """
 
-    func: StageFunc[Task, Params, Return]
+    func: StageFunc[Unpack[Args], Task, Return]
     args: tuple  # P.args: tuple (not possible to type hint)
-    kwargs: Mapping[str, Any]  # P.kwargs: dict (not possible to type hint)
 
-    def as_callable(self, task: Task):
-        """Return a partial function with the arguments and keyword arguments
-        set.
-        """
-        return functools.partial(self.func, task, *self.args, **self.kwargs)
+    def as_callable(self) -> Callable[[Task], Return]:
+        """Return the stage as a callable."""
+        return functools.partial(self.func, *self.args)
 
     async def collect_in_queue(
         self,
@@ -96,10 +96,12 @@ class Stage(Generic[Task, Params, Return]):
         executor: Executor,
     ):
         """Collect the results of the stage in a queue.
+
         If the function isn't async we run it in the executor.
         """
-        if inspect.isasyncgenfunction(self.func):
-            async for new_task in self.func(task, *self.args, **self.kwargs):
+        f = self.as_callable()
+        if inspect.isasyncgenfunction(f):
+            async for new_task in f(task):
                 await queue.put(new_task)
         else:
             loop = asyncio.get_running_loop()
@@ -107,15 +109,55 @@ class Stage(Generic[Task, Params, Return]):
                 executor,
                 _helper_queue,
                 queue,
-                self.func,
+                f,
                 task,
-                *self.args,
-                **self.kwargs,
             )
 
 
 @dataclass(slots=True)
-class Producer(Generic[Task, Params, Return]):
+class MutatorStage(Generic[Task, Unpack[Args]]):
+    """A stage that mutates the task in place.
+
+    This stage is useful when the task is a mutable object and we want to
+    modify it in place. This is particularly useful when the task is a
+    dictionary or a dataclass.
+
+    Generics:
+    - Task: The type of the tasks that are produced.
+    - Args: The type of the parameters that are passed to the stage.
+
+    Call signatures:
+    (*args, task) -> None
+    """
+
+    func: Callable[[Unpack[Args], Task], Any]
+    args: tuple
+
+    def as_callable(self) -> Callable[[Task], Any]:
+        """Return the stage as a callable."""
+        return functools.partial(self.func, *self.args)
+
+    async def collect_in_queue(
+        self,
+        task: Task,
+        queue: asyncio.Queue[Task | Sentinel],
+        executor: Executor,
+    ):
+        """Collect the results of the stage in a queue.
+
+        If the function isn't async we run it in the executor.
+        """
+        f = self.as_callable()
+        if inspect.iscoroutinefunction(f):
+            await f(task)
+            await queue.put(task)
+        else:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(executor, _helper_mutator, queue, f, task)
+
+
+@dataclass(slots=True)
+class Producer(Generic[Task, Return, Unpack[Args]]):
     """A producer generates tasks for the pipeline.
 
     We also allow to pass an iterable of tasks as a producer.
@@ -128,18 +170,8 @@ class Producer(Generic[Task, Params, Return]):
     - Return: The type of the tasks that are produced.
     """
 
-    func: Callable[Params, Return] | Return
+    func: Callable[[Unpack[Args]], Return] | Return
     args: Optional[tuple]  # P.args: tuple (not possible to type hint)
-    kwargs: Optional[Mapping[str, Any]]  # P.kwargs: dict (not possible to type hint)
-
-    def as_callable(self):
-        """Return a partial function with the arguments and keyword arguments
-        set.
-
-        Returns none if the producer isn't a callable.
-        """
-        if isinstance(self.func, Callable):
-            return functools.partial(self.func, *self.args, **self.kwargs or {})
 
     async def _as_async_iterable(self) -> AsyncIterable[Task]:
         """Return the results of the producer as an iterable."""
@@ -160,7 +192,7 @@ class Producer(Generic[Task, Params, Return]):
         This function is used to collect the results of the producer in a queue.
         """
         if isinstance(self.func, Callable):
-            f = functools.partial(self.func, *self.args, **self.kwargs or {})
+            f = functools.partial(self.func, *self.args)
             if inspect.isasyncgenfunction(f) or inspect.isasyncgenfunction(
                 self.func.__call__  # type: ignore allows to run classes with callables
             ):
@@ -179,44 +211,63 @@ def _helper_queue(queue: asyncio.Queue[Task | Sentinel], f, *args):
         queue.put_nowait(task)
 
 
+def _helper_mutator(queue: asyncio.Queue[Task | Sentinel], f, task: Task):
+    f(task)
+    queue.put_nowait(task)
+
+
 # --------------------------------- Pipelines -------------------------------- #
 class Pipeline(ABC, Generic[Task, Return]):
     """A pipeline of stages that process tasks."""
 
-    producer: Producer[Task, ..., Return]
-    stages: list[Stage[Task, ..., Return]]
+    producer: Producer[Task, Return, Unpack[tuple]]
+    stages: list[Stage[Task, Return, Unpack[tuple]] | MutatorStage[Task, Unpack[tuple]]]
 
     def __init__(self):
         self.stages = []
 
     def set_producer(
         self,
-        func: Callable[Params, Return] | Return,
-        *args: Params.args,
-        **kwargs: Params.kwargs,
+        func: Callable[[*Args], Return] | Return,
+        *args: Unpack[Args],
     ) -> None:
         """Set the producer of the pipeline."""
-        self.producer = Producer(func, args, kwargs)
+        self.producer = Producer(func, args)
 
     def add_stage(
         self,
-        func: StageFunc[Task, Params, Return],
-        *args: Params.args,
-        **kwargs: Params.kwargs,
+        func: StageFunc[Unpack[Args], Task, Return],
+        *args: Unpack[Args],
     ) -> None:
-        """Add a stage to the pipeline."""
-        self.stages.append(Stage(func, args, kwargs))
+        """Add a stage to the pipeline.
+
+        Converts given function to a stage and adds it to the pipeline.
+        """
+        self.stages.append(Stage(func, args))
+
+    def add_mutator(
+        self,
+        func: Callable[[Unpack[Args], Task], Any],
+        *args: Unpack[Args],
+    ) -> None:
+        """Add a mutator to the pipeline.
+
+        Converts given function to a mutator stage and adds it to the pipeline.
+        """
+        self.stages.append(MutatorStage(func, args))
 
     def add_stages(
         self,
-        *funcs: StageFunc[Task, Params, Return],
+        *stages: Stage | MutatorStage,
     ):
         """Add multiple stages to the pipeline."""
-        for func in funcs:
-            self.stages.append(Stage(func, (), {}))
+        for s in stages:
+            self.stages.append(s)
 
     @property
-    def consumer(self) -> Stage[Task, ..., Return]:
+    def consumer(
+        self,
+    ) -> Stage[Task, Return, Unpack[tuple]] | MutatorStage[Task, Unpack[tuple]]:
         return self.stages[-1]
 
 
@@ -264,7 +315,6 @@ class AsyncPipeline(Pipeline[Task, Returns[Task]]):
 
     async def __call__(self) -> AsyncIterable[Task]:
         """Run the pipeline asynchronously."""
-
         self.queues = [asyncio.Queue() for _ in range(len(self.stages) + 1)]
 
         coros = (
@@ -285,7 +335,6 @@ class AsyncPipeline(Pipeline[Task, Returns[Task]]):
 
     async def _run_producer(self):
         """Produce tasks for the pipeline and enqueue them."""
-
         # Parse possible producer types
         try:
             # Run task in executor
@@ -309,17 +358,29 @@ class AsyncPipeline(Pipeline[Task, Returns[Task]]):
             coros.append(self._run_stage(i, stage))
         await asyncio.gather(*coros)
 
-    async def _run_stage(self, i: int, stage: Stage[Task, Params, Returns[Task]]):
-        """
-        Creates asyncio coroutines for each task in the current queue and
-        enqueues the results for the next stage. Stops when the sentinel is
+    async def _run_stage(
+        self,
+        i: int,
+        stage: (
+            Stage[Task, Returns[Task], Unpack[tuple]]
+            | MutatorStage[Task, Unpack[tuple]]
+        ),
+    ):
+        """Create an asyncio coroutines for each task.
+
+        Enqueues the results for the next stage. Stops when the sentinel is
         reached.
         """
-
         time_start = time.time()
         loop = asyncio.get_running_loop()
 
-        async def exec_task(task: Task, stage: Stage[Task, Params, Returns[Task]]):
+        async def exec_task(
+            task: Task,
+            stage: (
+                Stage[Task, Returns[Task], Unpack[tuple]]
+                | MutatorStage[Task, Unpack[tuple]]
+            ),
+        ):
             # Run task in executor
             try:
                 await stage.collect_in_queue(task, self.queues[i + 1], self.executor)
