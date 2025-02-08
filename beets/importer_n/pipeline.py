@@ -33,7 +33,7 @@ from typing import (
     Optional,
 )
 
-from .stages import (
+from .pipeline_stages import (
     Args,
     MutatorStage,
     Producer,
@@ -170,7 +170,9 @@ class AsyncPipeline(Pipeline[Task, Returns[Task]]):
             if isinstance(res, (Sentinel, Exception)):
                 break
             yield res
-        potential_exceptions = await asyncio.gather(*coros, return_exceptions=True)
+        potential_exceptions = await asyncio.gather(
+            *coros, return_exceptions=True
+        )
         # Parse exceptions as values to prevent cancellation errors
         # We should use  a TaskGroup once we migrate to 3.11
         for pe in potential_exceptions:
@@ -221,7 +223,9 @@ class AsyncPipeline(Pipeline[Task, Returns[Task]]):
         ):
             # Run task in executor
             try:
-                await stage.collect_in_queue(task, self.queues[i + 1], self.executor)
+                await stage.collect_in_queue(
+                    task, self.queues[i + 1], self.executor
+                )
             except Exception as e:
                 for q in self.queues:
                     await q.put(self.sentinel)
@@ -238,6 +242,5 @@ class AsyncPipeline(Pipeline[Task, Returns[Task]]):
         await asyncio.gather(*stage_coros)
         await self.queues[i + 1].put(self.sentinel)
         log.debug(
-            f"""Stage {stage.func.__name__} completed in {time.time() - time_start:.2f}
-            seconds."""
+            f"Stage completed in {time.time() - time_start:.2f}s: {stage.func.__name__}"
         )

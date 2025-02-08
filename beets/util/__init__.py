@@ -162,6 +162,7 @@ class MoveOperation(Enum):
     HARDLINK = 3
     REFLINK = 4
     REFLINK_AUTO = 5
+    NONE = 6
 
 
 def normpath(path: PathLike) -> bytes:

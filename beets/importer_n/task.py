@@ -2,20 +2,22 @@ from __future__ import annotations
 
 import enum
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Iterable, Optional
+from typing import TYPE_CHECKING, Iterable, Optional, Sequence
+
+from beets.importer import ImportTask
 
 if TYPE_CHECKING:
     from beets import autotag, library
     from beets.util import PathLike
 
 
-class Action(enum.Enum):
+class UserAction(enum.Enum):
     NONE = 0
     SKIP = 1
     ASIS = 2
-    TRACKS = 3
+    AS_TRACKS = 3
     APPLY = 4
-    ALBUMS = 5
+    AS_ALBUMS = 5
 
     # The RETAG action represents "don't apply any match, but do record
     # new metadata". It's not reachable via the standard command prompt but
@@ -23,22 +25,12 @@ class Action(enum.Enum):
     RETAG = 6
 
 
-class BaseTask(ABC):
-    """An abstract base class for importer tasks.
-
-    Tasks flow through the importer pipeline. Each stage can update
-    them.
-    """
+class BaseImportTask(ABC):
+    """An abstract base class for importer tasks."""
 
     toppath: Optional[PathLike]
     paths: list[PathLike]
     items: list[library.Item]
-
-    # We keep track of the current user choice
-    # for the task. This may be used to make
-    # some decisions in the pipeline.
-    current_choice: Action = Action.NONE
-    current_match: Optional[autotag.AlbumMatch | autotag.TrackMatch] = None
 
     def __init__(
         self,
@@ -74,41 +66,37 @@ class BaseTask(ABC):
         self.items = list(items) if items is not None else []
 
     @abstractmethod
-    def lookup_candidates(self):
-        """Find candidate matches for the task."""
+    def handle_created():
+        """Handle the task creation."""
         pass
 
     @abstractmethod
-    def choose_match(self) -> Action:
-        """Choose a match from the candidates."""
-        pass
-
-    def set_current(
-        self,
-        choice: Optional[Action],
-        match: Optional[autotag.AlbumMatch | autotag.TrackMatch],
-    ):
-        """Set the user choice for the task.
-
-        Also, set the match that the user has chosen if any. Atm this implies
-        that the user has made a apply choice.
+    def lookup_candidates(self, search_ids: Optional[Sequence[str]] = None):
+        """Retrieve and store candidates for this task (album/item).
 
         Parameters
         ----------
-        choice : Optional[Action]
-            The user choice for the task. If None, the choice is not set.
-        match : Optional[autotag.AlbumMatch| autotag.TrackMatch]
-            The match that the user has chosen.
-        """
-        if choice is None:
-            choice = Action.NONE
+        search_ids : Optional[Sequence[str]], optional
+            A list of candidate IDs to restrict the initial lookup to. If
+            None, the lookup is unrestricted.
 
-        if match is not None:
-            self.current_match = match
-        else:
-            # Implicit choice.
-            self.current_choice = Action.APPLY
-            self.current_match = match
+        """
+        pass
+
+    @abstractmethod
+    def choose_match(self, task: ImportTask) -> UserAction | Match:
+        """Choose a match from the candidates.
+
+        Make a choice about the match for this task. This method should
+        return a `UserAction` enum value, an `AlbumMAtch` or `ItemMatch`
+        object directly.
+        """
+        pass
+
+    @abstractmethod
+    def manipulate_files(self, operation):
+        """Manipulate the files based on the user choice."""
+        pass
 
     # ------------------------------- Some helpers ------------------------------- #
 
